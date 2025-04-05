@@ -1,85 +1,75 @@
-
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime
 import time
 
-st.set_page_config(page_title="Painel Sentinela Cripto", layout="wide")
+st.set_page_config(layout="wide")
+st.title("📊 Painel Sentinela Cripto (Debug Mockado)")
+st.markdown("Simulação com dados de fallback caso API da Binance falhe")
 
-st.title("📊 Painel Sentinela Cripto em Tempo Real")
-st.caption("Atualizado a cada 10 segundos com base na API da Binance")
-
-# Função para buscar preços em tempo real da Binance
-def get_price(symbol):
-    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return float(response.json()['price'])
-    except:
-        return None
-
-# Lista de moedas populares + promissoras
 symbols = [
-    # Populares
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
-    "FETUSDT", "AGIXUSDT", "FUNUSDT", "REZUSDT", "GUNUSDT",
-    "JASMYUSDT", "LAYERUSDT", "ACTUSDT", "WINGUSDT", "GUNZUSDT",
-    # Promissoras (não populares)
-    "VIDTUSDT", "SYNUSDT", "UNFIUSDT", "1000SATSUSDT", "TRUUSDT",
-    "SSVUSDT", "AMBUSDT", "HOOKUSDT", "KASUSDT", "FLOKIUSDT",
-    "NFPUSDT", "SANTOSUSDT"
+    "JASMYUSDT", "AGIXUSDT", "FETUSDT", "GUNZUSDT", "REZUSDT",
+    "FUNUSDT", "LAYERUSDT", "ACTUSDT", "WINGUSDT", "1000SATSUSDT", "EOSUSDT"
 ]
 
-# Função para gerar o painel
-def gerar_painel():
-    dados = []
+fallback_prices = {
+    "BTCUSDT": 70500.0,
+    "ETHUSDT": 3550.0,
+    "SOLUSDT": 123.5,
+    "XRPUSDT": 0.612,
+    "DOGEUSDT": 0.165,
+    "JASMYUSDT": 0.021,
+    "AGIXUSDT": 1.10,
+    "FETUSDT": 1.07,
+    "GUNZUSDT": 0.061,
+    "REZUSDT": 0.017,
+    "FUNUSDT": 0.0082,
+    "LAYERUSDT": 0.135,
+    "ACTUSDT": 0.0019,
+    "WINGUSDT": 9.5,
+    "1000SATSUSDT": 0.00065,
+    "EOSUSDT": 0.91
+}
+
+@st.cache_data(ttl=10)
+def fetch_prices():
+    data = []
+    errors = []
     for symbol in symbols:
-        preco = get_price(symbol)
-        if preco:
-            rsi = round(30 + (preco % 40), 2)  # RSI simulado para visualização
-            if rsi < 30:
-                tendencia = "🔴 Sobrevendido"
-                status = "✅ Entrar Agora"
-            elif rsi <= 40:
-                tendencia = "🟡 Lateral"
-                status = "👀 Observar"
-            elif rsi <= 60:
-                tendencia = "🟡 Lateral"
-                status = "🕒 Aguardar"
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+        try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                json_data = response.json()
+                data.append({
+                    "Moeda": symbol,
+                    "Preço": float(json_data['price']),
+                    "Fonte": "🔵 Binance"
+                })
             else:
-                tendencia = "🟢 Sobrecomprado"
-                status = "⚠️ Evitar por enquanto"
-            suporte = round(preco * 0.93, 6)
-            resistencia = round(preco * 1.05, 6)
-            tp = round(preco * 1.08, 6)
-            sl = round(preco * 0.95, 6)
-            tag = "🧨 PROMISSORA" if symbol in [
-                "VIDTUSDT", "SYNUSDT", "UNFIUSDT", "1000SATSUSDT", "TRUUSDT",
-                "SSVUSDT", "AMBUSDT", "HOOKUSDT", "KASUSDT", "FLOKIUSDT",
-                "NFPUSDT", "SANTOSUSDT"
-            ] else "✅ PRINCIPAL"
-            dados.append({
+                data.append({
+                    "Moeda": symbol,
+                    "Preço": fallback_prices.get(symbol, 0),
+                    "Fonte": f"🟡 Mock (API {response.status_code})"
+                })
+        except Exception as e:
+            errors.append((symbol, str(e)))
+            data.append({
                 "Moeda": symbol,
-                "Tag": tag,
-                "Preço Atual (USDT)": preco,
-                "RSI (Simulado)": rsi,
-                "Tendência": tendencia,
-                "Status Estratégico": status,
-                "Suporte": suporte,
-                "Resistência": resistencia,
-                "Take Profit": tp,
-                "Stop Loss": sl,
-                "Atualizado em": datetime.now().strftime('%H:%M:%S')
+                "Preço": fallback_prices.get(symbol, 0),
+                "Fonte": "🔴 Mock (Exception)"
             })
-    return pd.DataFrame(dados)
+    return pd.DataFrame(data), errors
 
-# Área principal do painel com altura maior
-placeholder = st.empty()
+with st.spinner("🔄 Atualizando dados..."):
+    df, error_log = fetch_prices()
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.error("❌ Nenhum dado retornado. Verifique sua conexão ou a API da Binance.")
 
-while True:
-    df = gerar_painel()
-    with placeholder.container():
-        st.dataframe(df, use_container_width=True, height=900)
-    time.sleep(10)
+if error_log:
+    st.markdown("### ⚠️ Log de Erros:")
+    for err in error_log:
+        st.text(f"{err}")
